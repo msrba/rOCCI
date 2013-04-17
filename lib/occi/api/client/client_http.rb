@@ -1,7 +1,9 @@
 require 'rubygems'
 require 'httparty'
+
 require 'occi/api/client/http/net_http_fix'
 require 'occi/api/client/http/httparty_fix'
+require 'occi/api/client/http/authn_utils'
 
 module Occi
   module Api
@@ -27,79 +29,93 @@ module Occi
 
         # hash mapping HTTP response codes to human-readable messages
         HTTP_CODES = {
-            "100" => "Continue",
-            "101" => "Switching Protocols",
-            "200" => "OK",
-            "201" => "Created",
-            "202" => "Accepted",
-            "203" => "Non-Authoritative Information",
-            "204" => "No Content",
-            "205" => "Reset Content",
-            "206" => "Partial Content",
-            "300" => "Multiple Choices",
-            "301" => "Moved Permanently",
-            "302" => "Found",
-            "303" => "See Other",
-            "304" => "Not Modified",
-            "305" => "Use Proxy",
-            "307" => "Temporary Redirect",
-            "400" => "Bad Request",
-            "401" => "Unauthorized",
-            "402" => "Payment Required",
-            "403" => "Forbidden",
-            "404" => "Not Found",
-            "405" => "Method Not Allowed",
-            "406" => "Not Acceptable",
-            "407" => "Proxy Authentication Required",
-            "408" => "Request Time-out",
-            "409" => "Conflict",
-            "410" => "Gone",
-            "411" => "Length Required",
-            "412" => "Precondition Failed",
-            "413" => "Request Entity Too Large",
-            "414" => "Request-URI Too Large",
-            "415" => "Unsupported Media Type",
-            "416" => "Requested range not satisfiable",
-            "417" => "Expectation Failed",
-            "500" => "Internal Server Error",
-            "501" => "Not Implemented",
-            "502" => "Bad Gateway",
-            "503" => "Service Unavailable",
-            "504" => "Gateway Time-out",
-            "505" => "HTTP Version not supported"
+          "100" => "Continue",
+          "101" => "Switching Protocols",
+          "200" => "OK",
+          "201" => "Created",
+          "202" => "Accepted",
+          "203" => "Non-Authoritative Information",
+          "204" => "No Content",
+          "205" => "Reset Content",
+          "206" => "Partial Content",
+          "300" => "Multiple Choices",
+          "301" => "Moved Permanently",
+          "302" => "Found",
+          "303" => "See Other",
+          "304" => "Not Modified",
+          "305" => "Use Proxy",
+          "307" => "Temporary Redirect",
+          "400" => "Bad Request",
+          "401" => "Unauthorized",
+          "402" => "Payment Required",
+          "403" => "Forbidden",
+          "404" => "Not Found",
+          "405" => "Method Not Allowed",
+          "406" => "Not Acceptable",
+          "407" => "Proxy Authentication Required",
+          "408" => "Request Time-out",
+          "409" => "Conflict",
+          "410" => "Gone",
+          "411" => "Length Required",
+          "412" => "Precondition Failed",
+          "413" => "Request Entity Too Large",
+          "414" => "Request-URI Too Large",
+          "415" => "Unsupported Media Type",
+          "416" => "Requested range not satisfiable",
+          "417" => "Expectation Failed",
+          "500" => "Internal Server Error",
+          "501" => "Not Implemented",
+          "502" => "Bad Gateway",
+          "503" => "Service Unavailable",
+          "504" => "Gateway Time-out",
+          "505" => "HTTP Version not supported"
         }
 
         # Initializes client data structures and retrieves OCCI model
         # from the server.
         #
         # @example
-        #    Occi::Api::Client::ClientHttp.new # => #<Occi::Api::Client::ClientHttp>
+        #    options = {
+        #      :endpoint => "http://localhost:3300/",
+        #      :auth => {:type => "none"},
+        #      :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+        #      :auto_connect => "value", auto_connect => true,
+        #      :media_type => nil
+        #    }
         #
-        # @param [String] endpoint URI
-        # @param [Hash] auth options in a hash
-        # @param [Hash] logging options in a hash
-        # @param [Boolean] enable autoconnect
-        # @param [String] media type identifier
+        #    Occi::Api::Client::ClientHttp.new options # => #<Occi::Api::Client::ClientHttp>
+        #
+        # @param [Hash] options, for available options and defaults see examples
         # @return [Occi::Api::Client::ClientHttp] client instance
-        def initialize(endpoint = "http://localhost:3000/", auth_options = {:type => "none"},
-            log_options = {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
-            auto_connect = true, media_type = nil)
+        def initialize(options = {})
+
+          defaults = {
+            :endpoint => "http://localhost:3300/",
+            :auth => {:type => "none"},
+            :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+            :auto_connect => true,
+            :media_type => nil
+          }
+
+          options = options.marshal_dump if options.is_a? OpenStruct
+          options = defaults.merge options
+
           # set Occi::Log
-          set_logger log_options
+          set_logger options[:log]
 
           # pass auth options to HTTParty
-          change_auth auth_options
+          change_auth options[:auth]
 
           # check the validity and canonize the endpoint URI
-          prepare_endpoint endpoint
+          prepare_endpoint options[:endpoint]
 
           # get accepted media types from HTTParty
           set_media_type
 
           # force media_type if provided
-          if media_type
-            self.class.headers 'Accept' => media_type
-            @media_type = media_type
+          if options[:media_type]
+            self.class.headers 'Accept' => options[:media_type]
+            @media_type = options[:media_type]
           end
 
           Occi::Log.debug("Media Type: #{@media_type}")
@@ -110,7 +126,7 @@ module Occi
           set_model
 
           # auto-connect?
-          @connected = auto_connect
+          @connected = options[:auto_connect]
         end
 
         # Creates a new resource instance, resource should be specified
@@ -134,7 +150,7 @@ module Occi
           elsif @model.kinds.select { |kind| kind.term == resource_type }.any?
             # we got a resource type name
             Occi::Core::Resource.new @model.kinds.select {
-                |kind| kind.term == resource_type
+              |kind| kind.term == resource_type
             }.first.type_identifier
           else
             raise "Unknown resource type! [#{resource_type}]"
@@ -263,12 +279,12 @@ module Occi
             if type
               # get the first match from either os_tpls or resource_tpls
               case
-                when type == "os_tpl"
-                  get_os_templates.select { |mixin| mixin.term == name }.first
-                when type == "resource_tpl"
-                  get_resource_templates.select { |template| template.term == name }.first
-                else
-                  nil
+              when type == "os_tpl"
+                get_os_templates.select { |mixin| mixin.term == name }.first
+              when type == "resource_tpl"
+                get_resource_templates.select { |template| template.term == name }.first
+              else
+                nil
               end
             else
               # try in os_tpls first
@@ -276,7 +292,7 @@ module Occi
 
               # then try in resource_tpls
               found = get_resource_templates.select {
-                  |template| template.term == name
+                |template| template.term == name
               }.first unless found
 
               found
@@ -288,12 +304,12 @@ module Occi
             if type
               # return the first match with the selected type
               @mixins[type.to_sym].select {
-                  |mixin| mixin.to_s.reverse.start_with? name.reverse
+                |mixin| mixin.to_s.reverse.start_with? name.reverse
               }.first
             else
               # there is no type preference, return first global match
               @mixins.flatten(2).select {
-                  |mixin| mixin.to_s.reverse.start_with? name.reverse
+                |mixin| mixin.to_s.reverse.start_with? name.reverse
               }.first
             end
           end
@@ -342,7 +358,7 @@ module Occi
         #
         # @return [Array<String>] list of available mixin types
         def get_mixin_types
-          @mixins.keys.map! { |k| k.to_s }
+          @mixins.keys.map { |k| k.to_s }
         end
 
         # Retrieves available mixin type identifiers.
@@ -384,9 +400,9 @@ module Occi
           if resource_type_identifier
             # convert type to type identifier
             resource_type_identifier = @model.kinds.select {
-                |kind| kind.term == resource_type_identifier
+              |kind| kind.term == resource_type_identifier
             }.first.type_identifier if @model.kinds.select {
-                |kind| kind.term == resource_type_identifier
+              |kind| kind.term == resource_type_identifier
             }.any?
 
             # check some basic pre-conditions
@@ -405,7 +421,11 @@ module Occi
           headers = self.class.headers.clone
           headers['Accept'] = 'text/uri-list'
 
-          self.class.get(@endpoint + path, :headers => headers).body.split("\n").compact
+          # TODO: remove the gsub OCCI-OS hack
+          response = self.class.get(
+            @endpoint + path,
+            :headers => headers
+          ).body.gsub(/\# uri:\/(compute|storage|network)\/[\n]?/, '').split("\n").compact
         end
 
         # Retrieves descriptions for available resources specified by a type
@@ -429,9 +449,9 @@ module Occi
 
           # convert type to type identifier
           resource_type_identifier = @model.kinds.select {
-              |kind| kind.term == resource_type_identifier
+            |kind| kind.term == resource_type_identifier
           }.first.type_identifier if @model.kinds.select {
-              |kind| kind.term == resource_type_identifier
+            |kind| kind.term == resource_type_identifier
           }.any?
 
           # check some basic pre-conditions
@@ -450,7 +470,7 @@ module Occi
             locations.each do |location|
               descriptions << get(sanitize_resource_link(location))
             end
-          elsif resource_type_identifier.start_with? @endpoint
+          elsif resource_type_identifier.start_with?(@endpoint) || resource_type_identifier.start_with?('/')
             # we got resource link
             # make the request
             descriptions << get(sanitize_resource_link(resource_type_identifier))
@@ -568,7 +588,7 @@ module Occi
           # TODO: not tested
           if @model.kinds.select { |kind| kind.term == resource_type }.any?
             type_identifier = @model.kinds.select {
-                |kind| kind.term == resource_type_identifier
+              |kind| kind.term == resource_type_identifier
             }.first.type_identifier
 
             location = @model.get_by_id(type_identifier).location
@@ -633,45 +653,42 @@ module Occi
           @auth_options = auth_options
 
           case @auth_options[:type]
-            when "basic"
-              # set up basic auth
-              raise ArgumentError, "Missing required options 'username' and 'password' for basic auth!" unless @auth_options[:username] and @auth_options[:password]
-              self.class.basic_auth @auth_options[:username], @auth_options[:password]
-            when "digest"
-              # set up digest auth
-              raise ArgumentError, "Missing required options 'username' and 'password' for digest auth!" unless @auth_options[:username] and @auth_options[:password]
-              self.class.digest_auth @auth_options[:username], @auth_options[:password]
-            when "x509"
-              # set up pem and optionally pem_password and ssl_ca_path
-              raise ArgumentError, "Missing required option 'user_cert' for x509 auth!" unless @auth_options[:user_cert]
-              raise ArgumentError, "The file specified in 'user_cert' does not exist!" unless File.exists? @auth_options[:user_cert]
+          when "basic"
+            # set up basic auth
+            raise ArgumentError, "Missing required options 'username' and 'password' for basic auth!" unless @auth_options[:username] and @auth_options[:password]
+            self.class.basic_auth @auth_options[:username], @auth_options[:password]
+          when "digest"
+            # set up digest auth
+            raise ArgumentError, "Missing required options 'username' and 'password' for digest auth!" unless @auth_options[:username] and @auth_options[:password]
+            self.class.digest_auth @auth_options[:username], @auth_options[:password]
+          when "x509"
+            # set up pem and optionally pem_password and ssl_ca_path
+            raise ArgumentError, "Missing required option 'user_cert' for x509 auth!" unless @auth_options[:user_cert]
+            raise ArgumentError, "The file specified in 'user_cert' does not exist!" unless File.exists? @auth_options[:user_cert]
 
-              self.class.pem File.read(@auth_options[:user_cert]), @auth_options[:user_cert_password]
-              self.class.ssl_ca_path @auth_options[:ca_path] unless @auth_options[:ca_path].nil?
-              self.class.ssl_ca_file @auth_options[:ca_file] unless @auth_options[:ca_file].nil?
-              self.class.ssl_extra_chain_cert certs_to_file_ary(@auth_options[:proxy_ca]) unless @auth_options[:proxy_ca].nil?
-            when "keystone"
-              # set up OpenStack Keystone token based auth
-              raise ArgumentError, "Missing required option 'token' for OpenStack Keystone auth!" unless @auth_options[:token]
-              self.class.headers['X-Auth-Token'] = @auth_options[:token]
-            when "none", nil
-              # do nothing
+            # handle PKCS#12 credentials before passing them
+            # to httparty
+            if /\A(.)+\.p12\z/ =~ @auth_options[:user_cert]
+              self.class.pem AuthnUtils.extract_pem_from_pkcs12(@auth_options[:user_cert], @auth_options[:user_cert_password]), ''
             else
-              raise ArgumentError, "Unknown AUTH method [#{@auth_options[:type]}]!"
-          end
-        end
+              # httparty will handle ordinary PEM formatted credentials
+              # TODO: Issue #49, check PEM credentials in jRuby
+              self.class.pem File.open(@auth_options[:user_cert], 'rb').read, @auth_options[:user_cert_password]
+            end
 
-        # Reads X.509 certificates from a file to an array.
-        #
-        # @example
-        #    certs_to_file_ary "~/.globus/usercert.pem"
-        #      # => [#<String>, #<String>, ...]
-        #
-        # @param [String] Path to a PEM file containing certificates
-        # @return [Array<String>] An array of read certificates
-        def certs_to_file_ary(ca_file)
-          # TODO: read and separate multiple certificates
-          [] << File.read(ca_file)
+            self.class.ssl_ca_path @auth_options[:ca_path] unless @auth_options[:ca_path].nil?
+            self.class.ssl_ca_file @auth_options[:ca_file] unless @auth_options[:ca_file].nil?
+            self.class.ssl_extra_chain_cert AuthnUtils.certs_to_file_ary(@auth_options[:proxy_ca]) unless @auth_options[:proxy_ca].nil?
+          when "keystone"
+            Occi::Log.warn "AuthN method 'keystone' is deprecated and you should use it only as a fall-back option!"
+            # set up OpenStack Keystone token based auth
+            raise ArgumentError, "Missing required option 'token' for OpenStack Keystone auth!" unless @auth_options[:token]
+            self.class.headers['X-Auth-Token'] = @auth_options[:token]
+          when "none", nil
+            # do nothing
+          else
+            raise ArgumentError, "Unknown AUTH method [#{@auth_options[:type]}]!"
+          end
         end
 
         # Performs GET request and parses the responses to collections.
@@ -686,7 +703,7 @@ module Occi
         # @return [Occi::Collection] parsed result of the request
         def get(path='', filter=nil)
           # remove the leading slash
-          path.gsub!(/\A\//, '')
+          path = path.gsub(/\A\//, '')
 
           response = if filter
                        categories = filter.categories.collect { |category| category.to_text }.join(',')
@@ -739,39 +756,39 @@ module Occi
         # @return [String] URI location
         def post(path, collection)
           # remove the leading slash
-          path.gsub!(/\A\//, '')
+          path = path.gsub(/\A\//, '')
 
           headers = self.class.headers.clone
           headers['Content-Type'] = @media_type
 
           response = case @media_type
-                       when 'application/occi+json'
-                         self.class.post(@endpoint + path,
-                                         :body => collection.to_json,
-                                         :headers => headers)
-                       when 'text/occi'
-                         self.class.post(@endpoint + path,
-                                         :headers => collection.to_header.merge(headers))
-                       else
-                         self.class.post(@endpoint + path,
-                                         :body => collection.to_text,
-                                         :headers => headers)
+                     when 'application/occi+json'
+                       self.class.post(@endpoint + path,
+                                       :body => collection.to_json,
+                                       :headers => headers)
+                     when 'text/occi'
+                       self.class.post(@endpoint + path,
+                                       :headers => collection.to_header.merge(headers))
+                     else
+                       self.class.post(@endpoint + path,
+                                       :body => collection.to_text,
+                                       :headers => headers)
                      end
 
           response_msg = response_message response
 
           case response.code
-            when 200
-              collection = Occi::Parser.parse(response.header["content-type"].split(";").first, response)
-              if collection.empty?
-                Occi::Parser.locations(response.header["content-type"].split(";").first, response.body, response.header).first
-              else
-                collection.resources.first.location if collection.resources.first
-              end
-            when 201
+          when 200
+            collection = Occi::Parser.parse(response.header["content-type"].split(";").first, response)
+            if collection.empty?
               Occi::Parser.locations(response.header["content-type"].split(";").first, response.body, response.header).first
             else
-              raise "HTTP POST failed! #{response_msg}"
+              collection.resources.first.location if collection.resources.first
+            end
+          when 201
+            Occi::Parser.locations(response.header["content-type"].split(";").first, response.body, response.header).first
+          else
+            raise "HTTP POST failed! #{response_msg}"
           end
         end
 
@@ -785,32 +802,32 @@ module Occi
         # @return [Occi::Collection] parsed result of the request
         def put(path, collection)
           # remove the leading slash
-          path.gsub!(/\A\//, '')
+          path = path.gsub(/\A\//, '')
 
           headers = self.class.headers.clone
           headers['Content-Type'] = @media_type
 
           response = case @media_type
-                       when 'application/occi+json'
-                         self.class.post(@endpoint + path,
-                                         :body => collection.to_json,
-                                         :headers => headers)
-                       when 'text/occi'
-                         self.class.post(@endpoint + path,
-                                         :headers => collection.to_header.merge(headers))
-                       else
-                         self.class.post(@endpoint + path,
-                                         :body => collection.to_text,
-                                         :headers => headers)
+                     when 'application/occi+json'
+                       self.class.post(@endpoint + path,
+                                       :body => collection.to_json,
+                                       :headers => headers)
+                     when 'text/occi'
+                       self.class.post(@endpoint + path,
+                                       :headers => collection.to_header.merge(headers))
+                     else
+                       self.class.post(@endpoint + path,
+                                       :body => collection.to_text,
+                                       :headers => headers)
                      end
 
           response_msg = response_message response
 
           case response.code
-            when 200, 201
-              Occi::Parser.parse(response.header["content-type"].split(";").first, response)
-            else
-              raise "HTTP POST failed! #{response_msg}"
+          when 200, 201
+            Occi::Parser.parse(response.header["content-type"].split(";").first, response)
+          else
+            raise "HTTP POST failed! #{response_msg}"
           end
         end
 
@@ -824,7 +841,7 @@ module Occi
         # @return [Boolean] status
         def del(path, filter=nil)
           # remove the leading slash
-          path.gsub!(/\A\//, '')
+          path = path.gsub(/\A\//, '')
 
           response = self.class.delete(@endpoint + path)
 
@@ -884,10 +901,15 @@ module Occi
         # @example
         #    sanitize_resource_link "http://localhost:3300/compute/35ad4f45gsf-gsfg524s6gsfg-sfgsf4gsfg"
         #     # => "/compute/35ad4f45gsf-gsfg524s6gsfg-sfgsf4gsfg"
+        #    sanitize_resource_link "/compute/35ad4f45gsf-gsfg524s6gsfg-sfgsf4gsfg"
+        #     # => "/compute/35ad4f45gsf-gsfg524s6gsfg-sfgsf4gsfg"
         #
         # @param [String] string containing the full resource link
         # @return [String] extracted path, with a leading slash
         def sanitize_resource_link(resource_link)
+          # everything starting with '/' is considered to be a resource path
+          return resource_link if resource_link.start_with? '/'
+
           raise "Resource link #{resource_link} is not valid!" unless resource_link.start_with? @endpoint
 
           resource_link.gsub @endpoint, '/'
@@ -910,7 +932,7 @@ module Occi
             if kinds.any?
               #we got an type identifier
               path = "/" + kinds.first.type_identifier.split('#').last + "/"
-            elsif resource_type_identifier.start_with? @endpoint
+            elsif resource_type_identifier.start_with?(@endpoint) || resource_type_identifier.start_with?('/')
               #we got an resource link
               path = sanitize_resource_link(resource_type_identifier)
             else
@@ -925,26 +947,88 @@ module Occi
         #
         # @example
         #    set_model
+        #
+        # @return [Occi::Model]
         def set_model
+
+          # check credentials and handle OpenStack Keystone
+          # TODO: check expiration dates on Keystone tokens
+          raise "You are not authorized to use this endpoint!" unless check_authn
 
           #
           model = get('/-/')
           @model = Occi::Model.new(model)
 
           @mixins = {
-              :os_tpl => [],
-              :resource_tpl => []
+            :os_tpl => [],
+            :resource_tpl => []
           }
 
           #
           get_os_templates.each do |os_tpl|
-            @mixins[:os_tpl] << os_tpl.type_identifier unless os_tpl.nil? or os_tpl.type_identifier.nil?
+            unless os_tpl.nil? || os_tpl.type_identifier.nil?
+              tid = os_tpl.type_identifier.strip
+              @mixins[:os_tpl] << tid unless tid.empty?
+            end
           end
 
           #
           get_resource_templates.each do |res_tpl|
-            @mixins[:resource_tpl] << res_tpl.type_identifier unless res_tpl.nil? or res_tpl.type_identifier.nil?
+            unless res_tpl.nil? || res_tpl.type_identifier.nil?
+              tid = res_tpl.type_identifier.strip
+              @mixins[:resource_tpl] << tid unless tid.empty?
+            end
           end
+
+          model
+        end
+
+        # Checks provided credentials and attempts transparent
+        # authentication with OS Keystone using the "www-authenticate"
+        # header.
+        #
+        # @example
+        #    check_authn
+        #
+        # @return [true, false]
+        def check_authn
+          response = self.class.head @endpoint
+
+          return true if response.success?
+
+          if response.code == 401 && response.headers["www-authenticate"]
+            if response.headers["www-authenticate"].start_with? "Keystone"
+              keystone_uri = /^Keystone uri='(.+)'$/.match(response.headers["www-authenticate"])[1]
+
+              if keystone_uri
+                if @auth_options[:type] == "x509"
+                  body = { "auth" => { "voms" => true } }
+                else
+                  body = {
+                    "auth" => {
+                      "passwordCredentials" => {
+                        "username" => @auth_options[:username],
+                        "password" => @auth_options[:password]
+                      }
+                    }
+                  }
+                end
+
+                headers = self.class.headers.clone
+                headers['Content-Type'] = "application/json"
+                headers['Accept'] = headers['Content-Type']
+
+                response = self.class.post(keystone_uri + "/v2.0/tokens", :body => body.to_json, :headers => headers)
+
+                if response.success?
+                  self.class.headers['X-Auth-Token'] = response['access']['token']['id']
+                  return true
+                end
+              end
+            end
+          end
+
+          false
         end
 
         # Retrieves available os_tpls from the model.
@@ -978,10 +1062,10 @@ module Occi
           media_types = self.class.head(@endpoint).headers['accept']
           Occi::Log.debug("Available media types: #{media_types}")
           @media_type = case media_types
-                          when /application\/occi\+json/
-                            'application/occi+json'
-                          else
-                            'text/plain'
+                        when /application\/occi\+json/
+                          'application/occi+json'
+                        else
+                          'text/plain'
                         end
         end
 

@@ -67,30 +67,41 @@ module Occi
       # from the server.
       #
       # @example
-      #    Occi::Api::Client::ClientAmqp.new # => #<Occi::Api::Client::ClientAmqp>
+      #    options = {
+      #      :endpoint => "http://localhost:3300/",
+      #      :auth => {:type => "none"},
+      #      :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+      #      :media_type => "text/plain"
+      #    }
       #
-      # @param [String] endpoint URI
-      # @param [Hash] auth options in a hash
-      # @param [Hash] logging options in a hash
-      # @param [Boolean] enable autoconnect
-      # @param [String] media type identifier
+      #    Occi::Api::Client::ClientAmqp.new options # => #<Occi::Api::Client::ClientAmqp>
+      #
+      # @param [Hash] options, for available options and defaults see examples
       # @return [Occi::Api::Client::ClientAmqp] client instance
-      def initialize(connection_setting, endpoint = "http://localhost:3000/", auth_options = { :type => "none" },
-          log_options = { :out => STDERR, :level => Occi::Log::WARN, :logger => nil },
-          media_type = "text/plain")
+      def initialize(options = {})
 
-        @connection_setting = connection_setting
+        defaults = {
+            :endpoint => "http://localhost:3300/",
+            :auth => {:type => "none"},
+            :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+            :media_type => "text/plain"
+        }
+
+        options = options.marshal_dump if options.is_a? OpenStruct
+        options = defaults.merge options
+
+        @connection_setting = options[:connection_setting]
 
         # check the validity and canonize the endpoint URI
-        prepare_endpoint endpoint
+        prepare_endpoint options[:endpoint]
 
         # set Occi::Log
-        set_logger log_options
+        set_logger options[:log]
 
         # pass auth options to HTTParty
-        change_auth auth_options
+        change_auth options[:auth]
 
-        @media_type = media_type
+        @media_type = options[:media_type]
 
         Occi::Log.debug("Media Type: #{@media_type}")
 
@@ -98,15 +109,13 @@ module Occi
 
         Thread.new { run }
 
-        print "Waiting for connection amqp ..."
+        Occi::Log.debug("Waiting for connection amqp ...")
 
         #TODO find a better solution for the thread issue
         while(!@thread_error && !@connected)
           #dont use sleep - it blocks the eventmachine
-          test = test
         end
 
-        print "AMQP connected"
         # get model information from the endpoint
         # and create Occi::Model instance
         set_model unless @thread_error

@@ -14,8 +14,19 @@ The following setup is recommended
 * Ruby 1.9.3
 * RubyGems installed
 
+The following libraries / packages may be required to use rOCCI
+
+* libxslt-dev
+* libxml2-dev
+
+To use rOCCI with Java, you need JRE 6 or 7. To build rOCCI for Java, you need JDK 6 or 7.
+
 Installation
 ------------
+
+**[Mac OS X has some special requirements for the installation. Detailed information can be found in
+doc/macosx.md.](doc/macosx.md)**
+
 To install the most recent stable version
 
     gem install occi
@@ -24,11 +35,38 @@ To install the most recent beta version
 
     gem install occi --pre
 
+### Installation from source
+
+To use rOCCI from source it is very much recommended to use RVM. [Install RVM](https://rvm.io/rvm/install/) with
+
+    curl -L https://get.rvm.io | bash -s stable --ruby
+
+#### Ruby
+
 To build and install the bleeding edge version from master
 
     git clone git://github.com/gwdg/rOCCI.git
     cd rOCCI
+    rvm install ruby-1.9.3
+    rvm --create --ruby-version use 1.9.3@rOCCI
+    bundle install --deployment
     rake install
+
+#### Java
+
+To build a Java jar file from master use
+
+    git clone git://github.com/gwdg/rOCCI.git
+    cd rOCCI
+    rvm install jruby-1.7.1
+    rvm --create --ruby-version use jruby-1.7.1@rOCCI
+    gem install bundler
+    bundle install
+    warble
+
+For Linux / Mac OS X you can create a OCCI Java executable from the jar file using
+
+    sudo echo '#!/usr/bin/java -jar' | cat - occi.jar > occi ; sudo chmod +x occi
 
 Usage
 -----
@@ -59,9 +97,9 @@ To describe available resources use
 
 To describe specific resources use
 
-    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource https://<ENDPOINT>:<PORT>/compute/<OCCI_ID> --auth x509
-    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource https://<ENDPOINT>:<PORT>/storage/<OCCI_ID> --auth x509
-    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource https://<ENDPOINT>:<PORT>/network/<OCCI_ID> --auth x509
+    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource /compute/<OCCI_ID> --auth x509
+    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource /storage/<OCCI_ID> --auth x509
+    occi --endpoint https://<ENDPOINT>:<PORT>/ --action describe --resource /network/<OCCI_ID> --auth x509
 
 To list available OS templates or Resource templates use
 
@@ -75,11 +113,11 @@ To describe a specific OS template or Resource template use
 
 To create a compute resource with mixins use
 
-    occi --endpoint https://<ENDPOINT>:<PORT>/ --action create --resource compute --mixin os_tpl#debian6 --mixin resource_tpl#small --resource-title "My rOCCI VM" --auth x509
+    occi --endpoint https://<ENDPOINT>:<PORT>/ --action create --resource compute --mixin os_tpl#debian6 --mixin resource_tpl#small --attributes title="My rOCCI VM" --auth x509
 
 To delete a compute resource use
 
-    occi --endpoint https://<ENDPOINT>:<PORT>/ --action delete --resource https://<ENDPOINT>:<PORT>/compute/<OCCI_ID> --auth x509
+    occi --endpoint https://<ENDPOINT>:<PORT>/ --action delete --resource /compute/<OCCI_ID> --auth x509
 
 ### Client scripting
 
@@ -107,16 +145,35 @@ For X.509 auth use
     auth.user_cert_password = 'MyPassword'
     auth.ca_path = '/Path/To/root-certificates'
 
+**Deprecated:** For keystone auth use
+
+    auth = Hashie::Mash.new
+    auth.type = 'keystone'
+    auth.token = '887665443383838'
+
 #### DSL
 In your scripts, you can use the OCCI client DSL.
 
-To include the DSL definitions in your script use
+To include the DSL definitions in a script use
 
     extend Occi::Api::Dsl
 
+To include the DSL definitions in a class use
+
+    include Occi::Api:Dsl
+
 To connect to an OCCI endpoint/server (e.g. running on http://localhost:3300/ )
 
-    connect(:http, 'http://localhost:3300',auth||=nil)
+    # defaults
+    options = {
+      :endpoint => "http://localhost:3300/",
+      :auth => {:type => "none"},
+      :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+      :auto_connect => "value", auto_connect => true,
+      :media_type => nil
+    }
+
+    connect(:http, options ||= {})
 
 To get the list of available resource, mixin, entity or link types use
 
@@ -168,15 +225,15 @@ To create a new compute resource use
 
 To get a description of a specific resource use
 
-    describe "https://<ENDPOINT>:<PORT>/compute/<OCCI_ID>"
-    describe "https://<ENDPOINT>:<PORT>/storage/<OCCI_ID>"
-    describe "https://<ENDPOINT>:<PORT>/network/<OCCI_ID>"
+    describe "/compute/<OCCI_ID>"
+    describe "/storage/<OCCI_ID>"
+    describe "/network/<OCCI_ID>"
 
 To delete a specific resource use
 
-    delete "https://<ENDPOINT>:<PORT>/compute/<OCCI_ID>"
-    delete "https://<ENDPOINT>:<PORT>/storage/<OCCI_ID>"
-    delete "https://<ENDPOINT>:<PORT>/network/<OCCI_ID>"
+    delete "/compute/<OCCI_ID>"
+    delete "/storage/<OCCI_ID>"
+    delete "/network/<OCCI_ID>"
 
 #### API
 If you need low level access to parts of the OCCI client or need to use more than one instance
@@ -184,7 +241,16 @@ at a time, you should use the OCCI client API directly.
 
 To connect to an OCCI endpoint/server (e.g. running on http://localhost:3300/ )
 
-    client = Occi::Api::Client::ClientHttp.new('http://localhost:3300',auth||=nil)
+    # defaults
+    options = {
+      :endpoint => "http://localhost:3300/",
+      :auth => {:type => "none"},
+      :log => {:out => STDERR, :level => Occi::Log::WARN, :logger => nil},
+      :auto_connect => "value", auto_connect => true,
+      :media_type => nil
+    }
+
+    client = Occi::Api::Client::ClientHttp.new(options ||= {})
 
 All available categories are automatically registered to the OCCI model during client initialization. You can get them via
 
@@ -240,15 +306,15 @@ To create a new compute resource use
 
 To get a description of a specific resource use
 
-    client.describe "https://<ENDPOINT>:<PORT>/compute/<OCCI_ID>"
-    client.describe "https://<ENDPOINT>:<PORT>/storage/<OCCI_ID>"
-    client.describe "https://<ENDPOINT>:<PORT>/network/<OCCI_ID>"
+    client.describe "/compute/<OCCI_ID>"
+    client.describe "/storage/<OCCI_ID>"
+    client.describe "/network/<OCCI_ID>"
 
 To delete a specific resource use
 
-    client.delete "https://<ENDPOINT>:<PORT>/compute/<OCCI_ID>"
-    client.delete "https://<ENDPOINT>:<PORT>/storage/<OCCI_ID>"
-    client.delete "https://<ENDPOINT>:<PORT>/network/<OCCI_ID>"
+    client.delete "/compute/<OCCI_ID>"
+    client.delete "/storage/<OCCI_ID>"
+    client.delete "/network/<OCCI_ID>"
 
 #### Logging
 
@@ -321,7 +387,26 @@ The OCCI gem includes all OCCI Core classes necessary to handly arbitrary OCCI o
 Changelog
 ---------
 
-### version 2.5
+### Version 3.1
+* added basic OS Keystone support
+* added support for PKCS12 credentials for X.509 authN
+* updated templates for plain output formatting
+* minor client API changes
+* several bugfixes
+
+### Version 3.0
+
+* many bugfixes
+* rewrote Core classes to use metaprogramming techniques
+* added VCR cassettes for reliable testing against prerecorded server responses
+* several updates to the OCCI Client
+* started work on an OCCI Client using AMQP as transport protocol
+* added support for keystone authentication to be used with the OpenStack OCCI server
+* updated dependencies
+* updated rspec tests
+* started work on cucumber features
+
+### Version 2.5
 
 * improved OCCI Client
 * improved documentation
@@ -367,7 +452,7 @@ Change to rOCCI folder
 
 Install dependencies for deployment
 
-    bundle install --deployment
+    bundle install
 
 ### Code Documentation
 
