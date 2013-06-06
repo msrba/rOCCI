@@ -53,7 +53,11 @@ module Occi
           if mod.constants.collect { |sym| sym.to_s }.include? name.classify
             mod.const_get name.classify
           else
-            mod.const_set name.classify, Module.new
+            if related_term == "action" && namespace[-2] == name
+              mod.const_set name.classify, Class.new(Occi::Core::Category)
+            else
+              mod.const_set name.classify, Module.new
+            end
           end
         end
 
