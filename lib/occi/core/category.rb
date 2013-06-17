@@ -54,7 +54,7 @@ module Occi
             mod.const_get name.classify
           else
             if related_term == "action" && namespace[-2] == name
-              mod.const_set name.classify, Class.new(Occi::Core::Category)
+              mod.const_set name.classify, Class.new(Occi::Core::Mixin)
             else
               mod.const_set name.classify, Module.new
             end
