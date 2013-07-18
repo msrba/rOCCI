@@ -585,27 +585,30 @@ module Occi
         # @param [String] type of action
         # @return [String] resource location
         def trigger(resource_type_identifier, action)
-          # TODO: not tested
-          if @model.kinds.select { |kind| kind.term == resource_type }.any?
-            type_identifier = @model.kinds.select {
-              |kind| kind.term == resource_type_identifier
-            }.first.type_identifier
-
-            location = @model.get_by_id(type_identifier).location
-            resource_type_identifier = @endpoint + location
-          end
           # check some basic pre-conditions
           raise "Endpoint is not connected!" unless @connected
-          raise "Unknown resource identifier! #{resource_type_identifier}" unless resource_type_identifier.start_with? @endpoint
+
+          path = path_for_resource_type resource_type_identifier
 
           # encapsulate the acion in a collection
-          collection = Occi::Collection.new
-          scheme, term = action.split(' #')
-          collection.actions << Occi::Core::Action.new(scheme + '#', term)
+          collection   = Occi::Collection.new
+          #scheme, term = action.split('#')
+          action = @model.get_by_id action_type_identifier
+          #action = Occi::Core::Action.new scheme + '#', term
+          collection.actions << action #Occi::Core::Action.new(scheme + '#', term)
+          #action = collection.actions.first
+          #@media_type = "text/plain"
 
           # make the request
-          path = sanitize_resource_link(resource_type_identifier) + '?action=' + term
-          post path, collection
+          path =  path + '?action=' + action.term
+
+          if parameters.any?
+            parameters.each do |key, value|
+              path += "&" + key.to_s + "=" + value.to_s
+            end
+          end
+
+          post (@endpoint + path), collection
         end
 
         # Refreshes the Occi::Model used inside the client. Useful for
@@ -690,6 +693,7 @@ module Occi
             raise ArgumentError, "Unknown AUTH method [#{@auth_options[:type]}]!"
           end
         end
+
 
         # Performs GET request and parses the responses to collections.
         #

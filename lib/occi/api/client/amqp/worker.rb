@@ -4,19 +4,24 @@ module Occi
   module Amqp
     class Worker
 
-      def initialize(channel, consumer, producer, queue_name = AMQ::Protocol::EMPTY_STRING)
-        @queue_name = queue_name
-
-        @channel    = channel
-        @channel.on_error(&method(:handle_channel_exception))
-
-        @consumer   = consumer
-        @producer   = producer
+      def initialize
+        AMQP::Utilities::EventLoopHelper
       end
 
-      def start
-        @queue = @channel.queue(@queue_name, :exclusive => true, :auto_delete => true)
-        @queue.subscribe(&@consumer.method(:handle_message))
+      def start(options = {})
+        defaults = {}
+
+        merge_options options, defaults
+
+        connection = AMQP.connect Config.instance.amqp[:connection_setting]
+
+        channel = AMQP::Channel.new(connection)
+        channel.on_error(&method(:handle_channel_exception))
+
+        @queue = channel.queue(options[:queue_name], :exclusive => true, :auto_delete => true)
+        @queue.subscribe(&options[:callback])
+
+        @exchange = channel.default_exchange
       end
 
       def handle_channel_exception(channel, channel_close)
@@ -39,10 +44,16 @@ module Occi
         end
       end
 
-      def send(message, wait = false)
+      def request(message, options = {})
+        defaults = {
+          :wait => false
+        }
+
+        merge_options options, defaults
+
         message_id = message.options["message_id"]
 
-        @producer.send(message)
+        @exchange.publish(message.payload, message.options)
 
         @response_waiting             = Hash.new if @response_waiting.nil?
         @response_waiting[message_id] = {:message => message}
@@ -69,8 +80,19 @@ module Occi
         @response_waiting.delete(correlation_id) unless @response_waiting.nil?
       end
 
-      def get_response_message(message_id)
-        @response_messages[message_id]
+      def pop_response_message(message_id)
+        @response_messages[message_id].delete
+      end
+
+      def join
+        t = AMQP::Utilities::EventLoopHelper.eventmachine_thread
+        t.join unless t.nil?
+      end
+
+      private
+      def merge_options(opt1, opt2)
+        opt1 = opt1.marshal_dump if opt1.is_a? OpenStruct
+        opt2.merge opt1
       end
 
     end
