@@ -51,7 +51,7 @@ module Occi
 
         namespace = namespace.inject(Object) do |mod, name|
           if mod.constants.collect { |sym| sym.to_s }.include? name.classify
-            mod.const_get name.classify
+            mod.const_get name.classify, false
           else
             if related_term == "action" && namespace[-2] == name
               mod.const_set name.classify, Class.new(Occi::Core::Mixin)
@@ -61,8 +61,8 @@ module Occi
           end
         end
 
-        if namespace.const_defined? term.classify
-          klass = namespace.const_get term.classify
+        if namespace.const_defined? term.classify, false
+          klass = namespace.const_get term.classify, false
           unless klass.ancestors.include? Occi::Core::Entity or klass.ancestors.include? Occi::Core::Category
             raise "OCCI Kind with type identifier #{scheme + term} could not be created as the corresponding class #{klass.to_s} already exists and is not derived from Occi::Core::Entity"
           end
