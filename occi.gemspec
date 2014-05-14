@@ -5,7 +5,7 @@ $:.unshift lib unless $:.include?(lib)
 require 'occi/version'
 
 Gem::Specification.new do |gem|
-  gem.name          = "occi"
+  gem.name          = "occi-cloud4e"
   gem.version       = Occi::VERSION
   gem.authors       = ["Florian Feldhaus","Piotr Kasprzak", "Boris Parak"]
   gem.email         = ["florian.feldhaus@gwdg.de", "piotr.kasprzak@gwdg.de", "xparak@mail.muni.cz"]
@@ -23,7 +23,7 @@ Gem::Specification.new do |gem|
   gem.add_dependency 'antlr3'
   gem.add_dependency 'hashie'
   gem.add_dependency 'uuidtools', ">=2.1.3"
-  gem.add_dependency 'nokogiri'
+  gem.add_dependency 'nokogiri', '~>1.6.1'
   gem.add_dependency 'activesupport'
   gem.add_dependency 'httparty'
   gem.add_dependency 'highline'
